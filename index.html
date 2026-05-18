@@ -440,38 +440,23 @@ async function extractAudio(file) {
     URL.revokeObjectURL(url);
   }
 
-  // Decode audio track
-  let decoded;
+  // Decode directly at 16 kHz mono — saves ~10x memory vs decoding at 44100 Hz first
+  setProgUI('🎵 กำลัง decode เสียง...', `${sizeMB} MB → 16kHz`, null);
   try {
-    const tmpCtx = new AudioContext();
-    decoded = await tmpCtx.decodeAudioData(arrayBuffer);
-    await tmpCtx.close();
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const decoded = await ctx.decodeAudioData(arrayBuffer);
+    await ctx.close();
+    return decoded.getChannelData(0); // mono channel 0
   } catch (e) {
     throw new Error(
       `decode เสียงไม่ได้ (${sizeMB} MB)\n\n` +
-      `💡 แนะนำ: Export จาก VLC เป็น WAV mono 16kHz\n` +
-      `  1. เปิด VLC → Media → Convert/Save\n` +
-      `  2. กด + Add เลือกไฟล์ → กด Convert/Save\n` +
-      `  3. คลิกไอคอน 🔧 สร้าง Profile ใหม่:\n` +
-      `     Encapsulation: WAV\n` +
-      `     Audio: Codec=s16l, Channels=1, Samplerate=16000\n` +
-      `  4. ตั้งชื่อ output → Start\n\n` +
-      `รองรับ: MP4 · MKV · WebM · MOV · WAV · OGG\n` +
-      `ไฟล์ .avi และ MP3 บางรุ่นอาจ decode ไม่ได้`
+      `💡 ลองใช้ไฟล์ MP4 ต้นฉบับโดยตรง หรือ export จาก VLC:\n` +
+      `  Encapsulation: OGG  |  Codec: Vorbis\n` +
+      `  Channels: 1  |  Bitrate: 64  |  Sample Rate: 44100\n\n` +
+      `รองรับ: MP4 · MKV · WebM · MOV · OGG · WAV\n\n` +
+      `รายละเอียด: ${e.message}`
     );
   }
-
-  // Resample to 16 kHz mono (required by Whisper)
-  setProgUI('🎵 กำลัง resample เสียง...', `${decoded.duration.toFixed(0)} วินาที → 16kHz`, 90);
-  const targetRate = 16000;
-  const samples = Math.ceil(decoded.duration * targetRate);
-  const offCtx = new OfflineAudioContext(1, samples, targetRate);
-  const src = offCtx.createBufferSource();
-  src.buffer = decoded;
-  src.connect(offCtx.destination);
-  src.start(0);
-  const rendered = await offCtx.startRendering();
-  return rendered.getChannelData(0);
 }
 
 // ── Ollama translation ────────────────────────────────────────────────
