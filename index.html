@@ -407,12 +407,40 @@ function checkAbort() {
   if (abortCtrl?.signal.aborted) throw new DOMException('', 'AbortError');
 }
 
-// ── Audio extraction via Web Audio API (no ffmpeg needed) ────────────
+// ── Audio extraction via Web Audio API ───────────────────────────────
 async function extractAudio(file) {
-  setProgUI('🎵 กำลังดึงเสียงจากวิดีโอ...', file.name, null);
-  const arrayBuffer = await file.arrayBuffer();
+  const sizeMB = (file.size / 1048576).toFixed(0);
 
-  // Decode audio track using browser's native decoder (supports MP4/MKV/WebM/MOV)
+  if (file.size > 500 * 1048576) {
+    setProgUI(
+      `🎵 กำลังโหลดไฟล์ ${sizeMB} MB (อาจใช้ RAM มาก)...`,
+      '💡 แนะนำ: แปลงเป็น MP3 ก่อนด้วย VLC เพื่อให้เร็วขึ้น',
+      null
+    );
+  } else {
+    setProgUI('🎵 กำลังดึงเสียงจากวิดีโอ...', `${file.name} (${sizeMB} MB)`, null);
+  }
+
+  // Use object URL + fetch — more stable than file.arrayBuffer() for large/dropped files
+  const url = URL.createObjectURL(file);
+  let arrayBuffer;
+  try {
+    const res = await fetch(url);
+    arrayBuffer = await res.arrayBuffer();
+  } catch (e) {
+    throw new Error(
+      `อ่านไฟล์ไม่ได้ (${sizeMB} MB)\n\n` +
+      `💡 ไฟล์ใหญ่เกิน RAM หรือ browser ไม่รองรับ\n` +
+      `วิธีแก้: แปลงเป็น audio ก่อนด้วย VLC\n` +
+      `  Media → Convert/Save → Profile: Audio - MP3\n` +
+      `  ไฟล์จะเล็กลง ~50 เท่า (~50MB/ชั่วโมง)\n\n` +
+      `รายละเอียด: ${e.message}`
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+
+  // Decode audio track (MP4/MKV/WebM/MOV supported natively by browser)
   let decoded;
   try {
     const tmpCtx = new AudioContext();
@@ -420,11 +448,15 @@ async function extractAudio(file) {
     await tmpCtx.close();
   } catch (e) {
     throw new Error(
-      `ดึงเสียงไม่ได้\nBrowser รองรับ MP4 · MKV · WebM · MOV เป็นหลัก\nไฟล์ .avi อาจใช้ไม่ได้ (ลองแปลงเป็น MP4 ก่อน)\n\nรายละเอียด: ${e.message}`
+      `ดึงเสียงไม่ได้\n` +
+      `Browser รองรับ: MP4 · MKV · WebM · MOV\n` +
+      `ไฟล์ .avi ใช้ไม่ได้ — ลองแปลงเป็น MP4 ด้วย VLC ก่อน\n\n` +
+      `รายละเอียด: ${e.message}`
     );
   }
 
   // Resample to 16 kHz mono (required by Whisper)
+  setProgUI('🎵 กำลัง resample เสียง...', `${decoded.duration.toFixed(0)} วินาที → 16kHz`, 90);
   const targetRate = 16000;
   const samples = Math.ceil(decoded.duration * targetRate);
   const offCtx = new OfflineAudioContext(1, samples, targetRate);
