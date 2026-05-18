@@ -192,11 +192,8 @@
 <script type="module">
 // ── Imports ──────────────────────────────────────────────────────────
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
-import { FFmpeg } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js';
-import { fetchFile, toBlobURL } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js';
 
 // ── State ─────────────────────────────────────────────────────────────
-let ffmpegInst = null;
 let whisperPipe = null;
 let abortCtrl = null;
 let segments = [];
@@ -237,30 +234,13 @@ function setLoadUI(label, detail, pct) {
 
 async function initModels() {
   setStage('load');
-
-  // 1. FFmpeg (single-threaded, no SharedArrayBuffer — works on GitHub Pages)
-  setLoadUI('กำลังโหลด FFmpeg...', '~30MB, รอสักครู่', 5);
-  ffmpegInst = new FFmpeg();
-  try {
-    const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
-    await ffmpegInst.load({
-      coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-    setLoadUI('FFmpeg โหลดสำเร็จ ✓', '', 30);
-  } catch (e) {
-    setLoadUI('❌ FFmpeg โหลดไม่ได้', e.message, 0);
-    return;
-  }
-
-  // 2. Whisper
   const modelId = document.getElementById('whisper-sel').value;
-  setLoadUI(`กำลังโหลด Whisper (${modelId.split('/')[1]})...`, 'ครั้งแรกอาจนาน จะถูก cache ไว้ใช้ครั้งต่อไป', 32);
+  setLoadUI(`กำลังโหลด Whisper (${modelId.split('/')[1]})...`, 'ครั้งแรกอาจนาน ~250MB จะ cache ไว้ใช้ครั้งต่อไป', 5);
   try {
     whisperPipe = await pipeline('automatic-speech-recognition', modelId, {
       progress_callback: ({ status, loaded, total }) => {
         if (status === 'downloading' && total > 0) {
-          const pct = 32 + Math.round((loaded / total) * 65);
+          const pct = 5 + Math.round((loaded / total) * 92);
           setLoadUI(
             `โหลด Whisper... ${(loaded / 1048576).toFixed(0)}/${(total / 1048576).toFixed(0)} MB`,
             '', pct
@@ -272,7 +252,6 @@ async function initModels() {
     setLoadUI('❌ Whisper โหลดไม่ได้', e.message, 0);
     return;
   }
-
   setLoadUI('พร้อมใช้งาน ✓', '', 100);
   await new Promise(r => setTimeout(r, 500));
   document.getElementById('loading-card').classList.add('hidden');
@@ -396,25 +375,33 @@ function checkAbort() {
   if (abortCtrl?.signal.aborted) throw new DOMException('', 'AbortError');
 }
 
-// ── Audio extraction ──────────────────────────────────────────────────
+// ── Audio extraction via Web Audio API (no ffmpeg needed) ────────────
 async function extractAudio(file) {
-  const ext = file.name.split('.').pop().toLowerCase() || 'mp4';
-  const inName = `in.${ext}`;
+  setProgUI('🎵 กำลังดึงเสียงจากวิดีโอ...', file.name, null);
+  const arrayBuffer = await file.arrayBuffer();
 
-  ffmpegInst.on('progress', ({ progress }) => {
-    setProgUI('🎵 กำลังดึงเสียง...', file.name, Math.round((progress || 0) * 100));
-  });
+  // Decode audio track using browser's native decoder (supports MP4/MKV/WebM/MOV)
+  let decoded;
+  try {
+    const tmpCtx = new AudioContext();
+    decoded = await tmpCtx.decodeAudioData(arrayBuffer);
+    await tmpCtx.close();
+  } catch (e) {
+    throw new Error(
+      `ดึงเสียงไม่ได้\nBrowser รองรับ MP4 · MKV · WebM · MOV เป็นหลัก\nไฟล์ .avi อาจใช้ไม่ได้ (ลองแปลงเป็น MP4 ก่อน)\n\nรายละเอียด: ${e.message}`
+    );
+  }
 
-  await ffmpegInst.writeFile(inName, await fetchFile(file));
-  await ffmpegInst.exec(['-i', inName, '-ar', '16000', '-ac', '1', '-vn', '-f', 'wav', 'out.wav']);
-
-  const wav = await ffmpegInst.readFile('out.wav');
-  await ffmpegInst.deleteFile(inName).catch(() => {});
-  await ffmpegInst.deleteFile('out.wav').catch(() => {});
-
-  const ctx = new AudioContext({ sampleRate: 16000 });
-  const decoded = await ctx.decodeAudioData(new Uint8Array(wav).buffer);
-  return decoded.getChannelData(0);
+  // Resample to 16 kHz mono (required by Whisper)
+  const targetRate = 16000;
+  const samples = Math.ceil(decoded.duration * targetRate);
+  const offCtx = new OfflineAudioContext(1, samples, targetRate);
+  const src = offCtx.createBufferSource();
+  src.buffer = decoded;
+  src.connect(offCtx.destination);
+  src.start(0);
+  const rendered = await offCtx.startRendering();
+  return rendered.getChannelData(0);
 }
 
 // ── Ollama translation ────────────────────────────────────────────────
