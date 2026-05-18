@@ -440,7 +440,7 @@ async function extractAudio(file) {
     URL.revokeObjectURL(url);
   }
 
-  // Decode audio track (MP4/MKV/WebM/MOV supported natively by browser)
+  // Decode audio track
   let decoded;
   try {
     const tmpCtx = new AudioContext();
@@ -448,10 +448,16 @@ async function extractAudio(file) {
     await tmpCtx.close();
   } catch (e) {
     throw new Error(
-      `ดึงเสียงไม่ได้\n` +
-      `Browser รองรับ: MP4 · MKV · WebM · MOV\n` +
-      `ไฟล์ .avi ใช้ไม่ได้ — ลองแปลงเป็น MP4 ด้วย VLC ก่อน\n\n` +
-      `รายละเอียด: ${e.message}`
+      `decode เสียงไม่ได้ (${sizeMB} MB)\n\n` +
+      `💡 แนะนำ: Export จาก VLC เป็น WAV mono 16kHz\n` +
+      `  1. เปิด VLC → Media → Convert/Save\n` +
+      `  2. กด + Add เลือกไฟล์ → กด Convert/Save\n` +
+      `  3. คลิกไอคอน 🔧 สร้าง Profile ใหม่:\n` +
+      `     Encapsulation: WAV\n` +
+      `     Audio: Codec=s16l, Channels=1, Samplerate=16000\n` +
+      `  4. ตั้งชื่อ output → Start\n\n` +
+      `รองรับ: MP4 · MKV · WebM · MOV · WAV · OGG\n` +
+      `ไฟล์ .avi และ MP3 บางรุ่นอาจ decode ไม่ได้`
     );
   }
 
