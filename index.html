@@ -87,6 +87,31 @@
     ::-webkit-scrollbar-track { background: var(--bg2); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     .hidden { display: none !important; }
+
+    /* Ollama status bar */
+    .ollama-bar {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 18px; margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    }
+    .ollama-left { display: flex; align-items: center; gap: 10px; font-size: 0.88rem; }
+    .ollama-dot { font-size: 1rem; color: var(--muted); transition: color 0.3s; }
+    .ollama-dot.ok { color: var(--green); }
+    .ollama-dot.err { color: var(--red); }
+    .ollama-dot.checking { color: var(--yellow); animation: blink 0.8s step-end infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+    .btn-check-ollama {
+      background: var(--bg3); color: var(--text); border: 1px solid var(--border);
+      padding: 7px 16px; border-radius: 7px; cursor: pointer; font-size: 0.82rem;
+      transition: border-color 0.15s;
+    }
+    .btn-check-ollama:hover { border-color: var(--accent); color: var(--accent2); }
+    .ollama-hint {
+      background: #1c1500; border: 1px solid #c97a00; border-left: 4px solid var(--yellow);
+      border-radius: 8px; padding: 11px 16px; font-size: 0.8rem; color: #fbbf24;
+      margin-bottom: 18px; line-height: 1.7;
+    }
+    .ollama-hint code { background: #0d0a00; color: #fde68a; padding: 1px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.78rem; }
   </style>
 </head>
 <body>
@@ -110,10 +135,17 @@
     <div class="stage" id="st-done">✅ เสร็จ</div>
   </div>
 
-  <!-- Ollama CORS note -->
-  <div class="info-banner">
-    ⚠️ <strong>Ollama ต้องเปิดด้วย:</strong> <code>OLLAMA_ORIGINS=* ollama serve</code><br>
-    Windows: Environment Variables → <code>OLLAMA_ORIGINS</code> = <code>*</code> แล้วรีสตาร์ท Ollama
+  <!-- Ollama status -->
+  <div class="ollama-bar" id="ollama-bar">
+    <div class="ollama-left">
+      <span class="ollama-dot" id="ollama-dot">●</span>
+      <span id="ollama-status-text">ยังไม่ได้ตรวจสอบ Ollama</span>
+    </div>
+    <button class="btn-check-ollama" id="btn-check-ollama" onclick="checkOllama()">ทดสอบการเชื่อมต่อ</button>
+  </div>
+  <div class="ollama-hint hidden" id="ollama-hint">
+    ⚠️ <strong>เปิด Ollama ด้วย:</strong> <code>OLLAMA_ORIGINS=* ollama serve</code><br>
+    Windows: ตั้ง Environment Variable <code>OLLAMA_ORIGINS</code> = <code>*</code> แล้วรีสตาร์ท Ollama
   </div>
 
   <!-- Settings -->
@@ -478,8 +510,42 @@ function escHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── Ollama connection check ───────────────────────────────────────────
+async function checkOllama() {
+  const dot = document.getElementById('ollama-dot');
+  const txt = document.getElementById('ollama-status-text');
+  const hint = document.getElementById('ollama-hint');
+  const btn = document.getElementById('btn-check-ollama');
+
+  dot.className = 'ollama-dot checking';
+  txt.textContent = 'กำลังตรวจสอบ...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      const data = await res.json();
+      const models = (data.models || []).map(m => m.name).join(', ');
+      dot.className = 'ollama-dot ok';
+      txt.textContent = `Ollama พร้อมใช้งาน ✓${models ? '  —  ' + models : ''}`;
+      hint.classList.add('hidden');
+    } else {
+      throw new Error(`HTTP ${res.status}`);
+    }
+  } catch (e) {
+    dot.className = 'ollama-dot err';
+    txt.textContent = 'เชื่อมต่อ Ollama ไม่ได้';
+    hint.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+window.checkOllama = checkOllama;
+
 // ── Start ─────────────────────────────────────────────────────────────
 initModels();
+checkOllama();
 </script>
 </body>
 </html>
