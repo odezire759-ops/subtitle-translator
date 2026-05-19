@@ -19,6 +19,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Force UTF-8 stdout/stderr so emoji and Thai/Japanese chars work on Windows (cp1252 default)
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 
 # ---------- helpers ----------------------------------------------------------
 def fmt_ts(t: float) -> str:
@@ -62,6 +69,10 @@ def ollama_translate(text: str, model: str, host: str, timeout: int = 120) -> st
             "model": model,
             "prompt": PROMPT_TPL.format(text=text),
             "stream": False,
+            # keep_alive="30m" tells Ollama to keep the model in VRAM between requests.
+            # Without this, some Ollama setups unload the model after each call,
+            # adding 5-10s of reload overhead per segment.
+            "keep_alive": "30m",
             "options": {"temperature": 0.1, "num_predict": 200},
         }
     ).encode("utf-8")
