@@ -112,6 +112,25 @@
       margin-bottom: 18px; line-height: 1.7;
     }
     .ollama-hint code { background: #0d0a00; color: #fde68a; padding: 1px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.78rem; }
+
+    /* MP3 recommendation tip */
+    details.mp3-tip {
+      background: rgba(108,92,231,0.08); border: 1px solid #312e81; border-left: 4px solid var(--accent);
+      border-radius: 10px; padding: 0; margin-bottom: 14px; overflow: hidden;
+    }
+    details.mp3-tip > summary {
+      list-style: none; cursor: pointer; padding: 12px 18px; font-size: 0.86rem;
+      color: var(--accent2); font-weight: 600; user-select: none;
+      display: flex; align-items: center; gap: 8px;
+    }
+    details.mp3-tip > summary::-webkit-details-marker { display: none; }
+    details.mp3-tip > summary::after { content: '▾'; margin-left: auto; transition: transform 0.2s; }
+    details.mp3-tip[open] > summary::after { transform: rotate(180deg); }
+    details.mp3-tip .body { padding: 0 18px 14px; font-size: 0.83rem; color: var(--text); line-height: 1.75; }
+    details.mp3-tip .body ol { margin: 6px 0 6px 22px; }
+    details.mp3-tip .body li { margin-bottom: 4px; }
+    details.mp3-tip .body code { background: rgba(108,92,231,0.18); color: #c4b5fd; padding: 1px 7px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.78rem; }
+    details.mp3-tip .body strong { color: var(--accent2); }
   </style>
 </head>
 <body>
@@ -184,13 +203,30 @@
     <div class="prog-detail" id="load-detail"></div>
   </div>
 
+  <!-- MP3 recommendation -->
+  <details class="mp3-tip hidden" id="mp3-tip">
+    <summary>💡 แนะนำ: แปลงเป็น MP3 ก่อน — เร็วกว่า, RAM น้อยกว่า ~50 เท่า</summary>
+    <div class="body">
+      ไฟล์ MP4/MKV ขนาดใหญ่ (1-6 GB) ทำให้ browser ใช้ RAM เยอะมากและบาง codec ก็ decode ไม่ได้<br>
+      <strong>วิธีแปลงด้วย VLC (~2-5 นาที):</strong>
+      <ol>
+        <li>VLC → <strong>Media → Convert/Save</strong> (Ctrl+R)</li>
+        <li>กด <code>+ Add</code> → เลือกไฟล์หนัง → กด <code>Convert/Save</code></li>
+        <li><strong>Profile:</strong> <code>Audio - MP3</code></li>
+        <li>(เลือกได้) กด 🔧 ข้าง Profile → ตั้ง <strong>mono · 64kbps · 16000Hz</strong> ให้ไฟล์เล็กที่สุด</li>
+        <li>เลือกที่บันทึก → ตั้งชื่อ <code>xxx.mp3</code> → <strong>Start</strong></li>
+      </ol>
+      📦 ไฟล์จะเล็กลง ~50 เท่า (จาก 6GB → ~100MB) แต่ Whisper ถอดเสียงแม่นเท่าเดิม
+    </div>
+  </details>
+
   <!-- Drop zone (shown after models loaded) -->
   <div class="dropzone hidden" id="dropzone">
-    <input type="file" id="file-input" accept=".mp4,.mpeg,.mpg,.avi,.mkv,.mov" style="display:none">
+    <input type="file" id="file-input" accept=".mp4,.mpeg,.mpg,.avi,.mkv,.mov,.webm,.mp3,.wav,.m4a,.ogg,.flac,.aac" style="display:none">
     <div class="dropzone-icon">🎞️</div>
-    <h3>วางไฟล์หนังที่นี่</h3>
+    <h3>วางไฟล์ที่นี่</h3>
     <p>หรือคลิกเพื่อเลือกไฟล์</p>
-    <p class="formats">รองรับ: MP4 · MPEG · AVI · MKV · MOV</p>
+    <p class="formats">🎵 <strong style="color:#a29bfe">แนะนำ MP3</strong> · รองรับ: MP3 · WAV · M4A · OGG · MP4 · MKV · AVI</p>
   </div>
 
   <!-- Processing progress -->
@@ -287,6 +323,7 @@ async function initModels() {
   setLoadUI('พร้อมใช้งาน ✓', '', 100);
   await new Promise(r => setTimeout(r, 500));
   document.getElementById('loading-card').classList.add('hidden');
+  document.getElementById('mp3-tip').classList.remove('hidden');
   document.getElementById('dropzone').classList.remove('hidden');
   setStage('idle');
 }
@@ -412,7 +449,7 @@ async function extractAudio(file) {
   const sizeMB = (file.size / 1048576).toFixed(0);
 
   // Use FileReader — most reliable for drag-and-drop File objects across all browsers
-  const hint = file.size > 500 * 1048576 ? '💡 แนะนำ: แปลงเป็น MP3 ก่อนด้วย VLC เพื่อให้เร็วขึ้น' : `${file.name} (${sizeMB} MB)`;
+  const hint = file.size > 300 * 1048576 ? '💡 ไฟล์ใหญ่ — ครั้งหน้าแนะนำแปลงเป็น MP3 ก่อนด้วย VLC จะเร็วกว่ามาก' : `${file.name} (${sizeMB} MB)`;
   setProgUI(`🎵 กำลังอ่านไฟล์... (${sizeMB} MB)`, hint, null);
   const arrayBuffer = await new Promise((resolve, reject) => {
     const reader = new FileReader();
