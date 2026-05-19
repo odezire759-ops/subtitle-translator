@@ -1,0 +1,7 @@
+faster-whisper>=1.0.3
+tqdm>=4.66.0
+
+# GPU runtime libraries (Windows/Linux, install if PyPI CUDA wheels are needed)
+# Uncomment if you see "cuDNN not found" or "cublas not found":
+# nvidia-cublas-cu12
+# nvidia-cudnn-cu12
