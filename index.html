@@ -411,52 +411,60 @@ function checkAbort() {
 async function extractAudio(file) {
   const sizeMB = (file.size / 1048576).toFixed(0);
 
-  if (file.size > 500 * 1048576) {
-    setProgUI(
-      `🎵 กำลังโหลดไฟล์ ${sizeMB} MB (อาจใช้ RAM มาก)...`,
-      '💡 แนะนำ: แปลงเป็น MP3 ก่อนด้วย VLC เพื่อให้เร็วขึ้น',
-      null
-    );
-  } else {
-    setProgUI('🎵 กำลังดึงเสียงจากวิดีโอ...', `${file.name} (${sizeMB} MB)`, null);
-  }
-
-  // Use object URL + fetch — more stable than file.arrayBuffer() for large/dropped files
-  const url = URL.createObjectURL(file);
-  let arrayBuffer;
-  try {
-    const res = await fetch(url);
-    arrayBuffer = await res.arrayBuffer();
-  } catch (e) {
-    throw new Error(
+  // Use FileReader — most reliable for drag-and-drop File objects across all browsers
+  const hint = file.size > 500 * 1048576 ? '💡 แนะนำ: แปลงเป็น MP3 ก่อนด้วย VLC เพื่อให้เร็วขึ้น' : `${file.name} (${sizeMB} MB)`;
+  setProgUI(`🎵 กำลังอ่านไฟล์... (${sizeMB} MB)`, hint, null);
+  const arrayBuffer = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error(
       `อ่านไฟล์ไม่ได้ (${sizeMB} MB)\n\n` +
-      `💡 ไฟล์ใหญ่เกิน RAM หรือ browser ไม่รองรับ\n` +
-      `วิธีแก้: แปลงเป็น audio ก่อนด้วย VLC\n` +
-      `  Media → Convert/Save → Profile: Audio - MP3\n` +
-      `  ไฟล์จะเล็กลง ~50 เท่า (~50MB/ชั่วโมง)\n\n` +
-      `รายละเอียด: ${e.message}`
-    );
-  } finally {
-    URL.revokeObjectURL(url);
+      `💡 ลองเลือกไฟล์ใหม่อีกครั้ง\n` +
+      `ถ้ายังไม่ได้: แปลงเป็น audio ก่อนด้วย VLC\n` +
+      `  Media → Convert/Save → Profile: Audio - MP3`
+    ));
+    reader.readAsArrayBuffer(file);
+  });
+
+  if (arrayBuffer.byteLength === 0) {
+    throw new Error('ไฟล์ว่างเปล่า หรืออ่านไม่ได้ — ลองเลือกไฟล์ใหม่อีกครั้ง');
   }
 
-  // Decode directly at 16 kHz mono — saves ~10x memory vs decoding at 44100 Hz first
+  // Try decoding at 16 kHz directly (saves ~10x memory).
+  // If the codec isn't supported at 16 kHz, fall back to native rate then resample.
   setProgUI('🎵 กำลัง decode เสียง...', `${sizeMB} MB → 16kHz`, null);
-  try {
-    const ctx = new AudioContext({ sampleRate: 16000 });
-    const decoded = await ctx.decodeAudioData(arrayBuffer);
-    await ctx.close();
-    return decoded.getChannelData(0); // mono channel 0
-  } catch (e) {
-    throw new Error(
-      `decode เสียงไม่ได้ (${sizeMB} MB)\n\n` +
-      `💡 ลองใช้ไฟล์ MP4 ต้นฉบับโดยตรง หรือ export จาก VLC:\n` +
-      `  Encapsulation: OGG  |  Codec: Vorbis\n` +
-      `  Channels: 1  |  Bitrate: 64  |  Sample Rate: 44100\n\n` +
-      `รองรับ: MP4 · MKV · WebM · MOV · OGG · WAV\n\n` +
-      `รายละเอียด: ${e.message}`
-    );
+  const fallbackRates = [16000, 44100, 48000];
+  let lastErr;
+  for (const rate of fallbackRates) {
+    try {
+      const ctx = new AudioContext({ sampleRate: rate });
+      const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0)); // slice to clone — decodeAudioData may detach
+      await ctx.close();
+      if (rate === 16000) {
+        return decoded.getChannelData(0); // already at 16 kHz
+      }
+      // Resample to 16 kHz via OfflineAudioContext
+      setProgUI('🎵 กำลัง resample เสียง...', `${rate}Hz → 16kHz`, null);
+      const offCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+      const src = offCtx.createBufferSource();
+      src.buffer = decoded;
+      src.connect(offCtx.destination);
+      src.start(0);
+      const rendered = await offCtx.startRendering();
+      return rendered.getChannelData(0);
+    } catch (e) {
+      lastErr = e;
+      // try next sample rate
+    }
   }
+  throw new Error(
+    `decode เสียงไม่ได้ (${sizeMB} MB)\n\n` +
+    `💡 browser ไม่รองรับ codec นี้\n` +
+    `วิธีแก้: แปลงเป็น audio ก่อนด้วย VLC\n` +
+    `  Media → Convert/Save → Profile: Audio - MP3\n` +
+    `  หรือ Codec: MP3 · AAC · Vorbis\n\n` +
+    `รายละเอียด: ${lastErr?.message}`
+  );
 }
 
 // ── Ollama translation ────────────────────────────────────────────────
